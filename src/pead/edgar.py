@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+import yfinance as yf
 
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
@@ -107,11 +108,11 @@ class EdgarClient:
 
 def _parse_acceptance(series: pd.Series) -> pd.Series:
     """
-    EDGAR acceptance timestamps are Eastern time despite sometimes carrying a
-    'Z'. Parse naive, then localise to Eastern.
+    EDGAR acceptance timestamps are UTC. Localise as UTC, then convert to
+    Eastern. Validated against Apple: releases land at 16:30 ET.
     """
-    naive = pd.to_datetime(series, errors="coerce").dt.tz_localize(None)
-    return naive.dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT")
+    utc = pd.to_datetime(series, errors="coerce", utc=True)
+    return utc.dt.tz_convert("America/New_York")
 
 
 def get_earnings_announcements(client: EdgarClient, cik: int) -> pd.DataFrame:
@@ -144,43 +145,44 @@ def get_earnings_announcements(client: EdgarClient, cik: int) -> pd.DataFrame:
 def _derive_q4(quarterly: pd.DataFrame, annual: pd.DataFrame) -> pd.DataFrame:
     """
     Q4 EPS is never filed as its own XBRL fact -- a 10-K tags the full year
-    as fp="FY", not fp="Q4". Derive it as FY minus Q1+Q2+Q3 for each fiscal
-    year where all three quarters and the FY figure are available.
+    as fp="FY", not fp="Q4".
 
-    Uses the earliest-filed value for each (fy, fp) pair, same point-in-time
-    rule as the quarters themselves, and stamps the derived row with the
-    FY filing's `filed` date since that is the point at which Q4 first
-    becomes computable.
+    `fy`/`fp` describe the fiscal period *focus of the filing*, not the
+    period a given fact covers: a 10-K carries prior-year comparatives
+    stamped with the *current* filing's fy, and fp isn't trustworthy either
+    (some rows carry fp="FY" on a 90-day duration). So this uses start/end
+    dates only, never fy or fp: for each annual row, a fiscal year is
+    "complete" when exactly three quarterly rows nest entirely inside the
+    annual period's [start, end], and Q4 = FY - sum(those three). Years
+    without exactly three nested quarters are skipped.
     """
-    q123 = quarterly[quarterly["fp"].isin(["Q1", "Q2", "Q3"])]
-    q123 = q123.sort_values("filed").drop_duplicates(subset=["fy", "fp"], keep="first")
-
-    complete_years = q123.groupby("fy").size()
-    complete_years = complete_years[complete_years == 3].index
-
     rows = []
-    for fy in complete_years:
-        fy_annual = annual[annual["fy"] == fy]
-        if fy_annual.empty:
+    for _, annual_row in annual.iterrows():
+        in_year = quarterly[
+            (quarterly["start"] >= annual_row["start"]) & (quarterly["end"] <= annual_row["end"])
+        ]
+        if len(in_year) != 3:
             continue
-        annual_row = fy_annual.iloc[0]
-
-        year_quarters = q123[q123["fy"] == fy]
-        q3 = year_quarters.loc[year_quarters["fp"] == "Q3"].iloc[0]
 
         rows.append(
             {
                 "cik": annual_row["cik"],
-                "start": q3["end"],
+                "start": in_year["end"].max() + pd.Timedelta(days=1),
                 "end": annual_row["end"],
-                "val": annual_row["val"] - year_quarters["val"].sum(),
+                "val": annual_row["val"] - in_year["val"].sum(),
                 "filed": annual_row["filed"],
                 "form": annual_row["form"],
-                "fy": fy,
+                "fy": annual_row["fy"],
                 "fp": "Q4",
             }
         )
-    return pd.DataFrame(rows)
+
+    result = pd.DataFrame(rows)
+    if not result.empty:
+        duration = (result["end"] - result["start"]).dt.days
+        assert (result["end"] > result["start"]).all(), "derived Q4 row has end <= start"
+        assert duration.between(80, 100).all(), "derived Q4 row has a non-quarterly duration"
+    return result
 
 
 def get_quarterly_eps(client: EdgarClient, cik: int) -> pd.DataFrame:
@@ -196,7 +198,11 @@ def get_quarterly_eps(client: EdgarClient, cik: int) -> pd.DataFrame:
 
     Q4 is NOT present in the raw data (10-Ks tag the full year as fp="FY",
     not Q4), so it is derived as FY minus Q1+Q2+Q3 for each fiscal year
-    where all four figures are available. See `_derive_q4`.
+    where all four figures are available. Classification into quarterly vs.
+    annual, and the matching of quarters to their fiscal year, is done
+    entirely from start/end dates -- fy and fp are not used, since they
+    describe the filing's own period focus and can mislabel comparatives
+    from a different period. See `_derive_q4`.
     """
     facts = client.get_json(COMPANYFACTS_URL.format(cik=cik))
     concept = facts["facts"]["us-gaap"].get("EarningsPerShareDiluted")
@@ -216,19 +222,98 @@ def get_quarterly_eps(client: EdgarClient, cik: int) -> pd.DataFrame:
     quarterly = eps[eps["duration_days"].between(80, 100)].copy()
     quarterly = (
         quarterly.sort_values("filed")
-        .drop_duplicates(subset=["start", "end"], keep="first")
+        # dedup on `end` alone: filings disagree on period start by a day
+        # or two, so (start, end) treats the same quarter as near-duplicates.
+        .drop_duplicates(subset=["end"], keep="first")
         .assign(cik=cik)
     )
 
-    annual = eps[(eps["duration_days"].between(350, 380)) & (eps["fp"] == "FY")].copy()
+    annual = eps[eps["duration_days"].between(350, 380)].copy()
     annual = (
         annual.sort_values("filed")
-        .drop_duplicates(subset=["fy"], keep="first")
+        # dedup on `end` alone, same reasoning as quarterly above -- and
+        # fy isn't a safe dedup key (see `_derive_q4`).
+        .drop_duplicates(subset=["end"], keep="first")
         .assign(cik=cik)
     )
 
     q4 = _derive_q4(quarterly, annual)
     quarterly = pd.concat([quarterly, q4], ignore_index=True)
 
+    # Pre-2021 10-Ks reported Q4 directly (Item 302 selected quarterly
+    # data) but tagged it fp="FY" -- the same tag used for the full-year
+    # figure itself. fp is otherwise unreliable (see `_derive_q4`), but a
+    # quarterly-duration row whose end lands exactly on a fiscal year end
+    # is Q4 by definition, so relabel those regardless of what fp says.
+    fiscal_year_ends = set(annual["end"])
+    quarterly.loc[quarterly["end"].isin(fiscal_year_ends), "fp"] = "Q4"
+
     cols = ["cik", "start", "end", "val", "filed", "form", "fy", "fp"]
     return quarterly[cols].sort_values("end").reset_index(drop=True)
+
+
+def adjust_for_splits(eps: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    """
+    As-reported XBRL EPS is not split-adjusted: e.g. Apple's Q4 EPS goes
+    8.26 (2013) -> 1.42 (2014) across its 7-for-1 split, and 3.03 (2019)
+    -> 0.73 (2020) across its 4-for-1, purely from share count with no
+    change in underlying earnings power.
+
+    Puts every row on a constant (current) share-count basis by dividing
+    `val` by the cumulative product of all splits that occurred *after*
+    that row's period `end`. Adds `eps_adj`; `val` is left untouched.
+    """
+    splits = yf.Ticker(ticker).splits
+    if splits.index.tz is not None:
+        # yfinance returns split dates tz-aware; `end` is naive. Strip the
+        # tz rather than converting -- the calendar date is what matters.
+        splits.index = splits.index.tz_localize(None)
+
+    def factor_after(period_end: pd.Timestamp) -> float:
+        after = splits[splits.index > period_end]
+        return after.prod() if not after.empty else 1.0
+
+    eps = eps.copy()
+    eps["eps_adj"] = eps.apply(lambda row: row["val"] / factor_after(row["end"]), axis=1)
+    return eps
+
+
+def match_announcements_to_periods(
+    events: pd.DataFrame, eps: pd.DataFrame, raise_on_bad_lag: bool = True
+) -> pd.DataFrame:
+    """
+    Pair each earnings announcement with the fiscal period it reports on:
+    the most recent EPS period (per `events`/`eps` `cik`) whose `end` is on
+    or before the announcement's `filing_date`, within 75 days.
+
+    Adds `days_since_period_end`. A normal reporting lag is ~15-75 days
+    (SEC deadlines run up to 40-90 days depending on filer size); anything
+    outside that range signals a bad pairing rather than a real gap, so by
+    default we raise instead of returning silently wrong data. Pass
+    `raise_on_bad_lag=False` to get the matches back anyway (with the bad
+    rows still flagged in `days_since_period_end`) for diagnostic use.
+    """
+    left = events.sort_values("filing_date")
+    right = eps.sort_values("end")
+
+    matched = pd.merge_asof(
+        left,
+        right,
+        left_on="filing_date",
+        right_on="end",
+        by="cik",
+        direction="backward",
+        tolerance=pd.Timedelta(days=75),
+    )
+    matched["days_since_period_end"] = (matched["filing_date"] - matched["end"]).dt.days
+    matched = matched.reset_index(drop=True)
+
+    lag = matched["days_since_period_end"]
+    bad = lag.notna() & ~lag.between(15, 75)
+    if bad.any() and raise_on_bad_lag:
+        raise ValueError(
+            f"{bad.sum()} announcement(s) matched a period outside the "
+            "15-75 day reporting-lag window -- likely a mismatched pairing."
+        )
+
+    return matched

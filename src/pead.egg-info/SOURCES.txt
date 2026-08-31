@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+src/pead/__init__.py
+src/pead/edgar.py
+src/pead.egg-info/PKG-INFO
+src/pead.egg-info/SOURCES.txt
+src/pead.egg-info/dependency_links.txt
+src/pead.egg-info/top_level.txt
+tests/test_edgar.py
