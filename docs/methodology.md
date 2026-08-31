@@ -1,30 +1,77 @@
 # Methodology
 
-Running log of modelling decisions and the reasoning behind them. Add to
-this as we go — short entries, updated in the same commit as the code.
+Structured record of modelling decisions for this PEAD event study. Read
+before changing any modelling code (see `CLAUDE.md`); update in the same
+commit as the code change that motivates it.
 
 ---
 
-**Event = 8-K filing carrying Item 2.02, not the 10-Q filing date.**
-The press release (8-K) precedes the 10-Q by days or weeks, so the 10-Q
-would put the event window in the wrong place. Item 2.02 is the SEC's
-standard tag for an earnings press release.
+## Data sources
 
-**t=0 from `acceptanceDateTime`: on/after 16:00 ET → next trading day.**
-Markets close at 16:00 ET; a filing accepted at or after that time can't
-move the price until the next session, so its event day rolls forward.
+- **SEC EDGAR submissions API** for filing history and **companyfacts API**
+  for XBRL financials. Free, no key required, but requires a contact
+  `User-Agent` header and is subject to a 10 requests/second limit.
+- **yfinance** for prices and split ratios.
 
-**EPS = earliest-filed value per period.**
-Later filings restate or repeat the same period as a comparative. Using
-anything but the first-filed value would leak information the market
-didn't have yet.
+## Sample period
 
-**Estimation window: 250 trading days, ending 21 days before the event.**
-Standard event-study convention — long enough to estimate normal-return
-parameters reliably, with a gap before the event so pre-announcement drift
-doesn't contaminate the estimation.
+Effectively begins 2009, constrained by XBRL phase-in. Pre-2009 filings
+would require parsing raw filing text, which is out of scope. One extra
+year (2009) arrives via prior-year comparatives inside FY2010 10-Ks.
 
-**Announcement window (0, +1); drift window (+2, +60).**
-(0, +1) captures the immediate price reaction, including next-day
-if the announcement was after close. (+2, +60) is the post-announcement
-drift period PEAD studies test for.
+## Event identification
+
+- The event is an 8-K carrying **Item 2.02** (Results of Operations), not
+  the 10-Q filing date — the press release precedes the 10-Q by days or
+  weeks, so using the 10-Q date would miss the announcement entirely.
+- `t=0` is derived from `acceptanceDateTime`, which EDGAR returns in UTC
+  and must be converted to Eastern. Filings accepted at or after 16:00 ET
+  have their price reaction on the following trading day.
+- Item 2.02 filings whose reporting lag falls outside **15–75 days** are
+  excluded as non-quarterly releases. Example: Apple's 2019-01-02 revenue
+  warning, a guidance revision rather than a quarterly result.
+
+## EPS handling
+
+- **Earliest-filed value kept for each period**, preserving point-in-time
+  correctness. Later appearances are comparatives or restatements and
+  would introduce look-ahead bias.
+- **Period identity derived from start/end dates, never from `fy`/`fp`.**
+  Those fields describe the fiscal period focus of the filing, not the
+  fact — prior-year comparatives inherit the current filing's tags, which
+  caused derived Q4 values with end dates two years before their start
+  dates.
+- **Q4 is not separately reported in post-2021 10-Ks** and is derived as
+  FY minus Q1+Q2+Q3. Pre-2021, large filers tagged Q4 directly under Item
+  302 selected quarterly data, labelled `fp="FY"` despite 90-day
+  durations.
+- Derived Q4 carries rounding error of one to two cents from accumulated
+  per-quarter rounding. Immaterial for surprise calculation.
+- **EPS is as-reported and not split-adjusted.** Adjusted using cumulative
+  split ratios from yfinance applied to splits occurring after each
+  period end. Apple's Q4 EPS falls 8.26 → 1.42 across the 2014 7-for-1
+  split and 3.03 → 0.73 across the 2020 4-for-1; unadjusted, a seasonal
+  random walk surprise measure would read these as catastrophic misses.
+
+## Event study parameters
+
+- **Estimation window:** 250 trading days ending 21 days before the
+  event, the gap avoiding contamination from pre-announcement drift and
+  changing volatility.
+- **Announcement window:** (0, +1).
+- **Drift window:** (+2, +60).
+
+## Validation
+
+Pipeline validated against Apple (CIK 320193, September fiscal year end,
+reports after the close) and JPMorgan (CIK 19617, December fiscal year
+end, reports before the open). Both produce four quarters per year with
+no inverted dates and durations of 89–97 days.
+
+## Known limitations
+
+- Universe constructed from current index membership, introducing
+  survivorship bias.
+- Apple's 52/53-week fiscal calendar produces occasional 97-day quarters.
+- Three Apple announcements occur intraday, where `t=0` cannot be cleanly
+  assigned without intraday prices.
