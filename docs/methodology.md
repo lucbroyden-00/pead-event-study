@@ -27,9 +27,15 @@ year (2009) arrives via prior-year comparatives inside FY2010 10-Ks.
 - `t=0` is derived from `acceptanceDateTime`, which EDGAR returns in UTC
   and must be converted to Eastern. Filings accepted at or after 16:00 ET
   have their price reaction on the following trading day.
-- Item 2.02 filings whose reporting lag falls outside **15–75 days** are
+- Item 2.02 filings whose reporting lag falls outside **7–75 days** are
   excluded as non-quarterly releases. Example: Apple's 2019-01-02 revenue
-  warning, a guidance revision rather than a quarterly result.
+  warning, a guidance revision rather than a quarterly result, at a 4-day
+  lag.
+- The floor was originally 15 days; lowered to 7 after validation against
+  JPMorgan showed it reports 12–16 days after quarter end, so a 15-day
+  floor rejected roughly 85% of its legitimate quarterly announcements.
+  7 days still excludes the Apple guidance-revision case above (4-day
+  lag) while accommodating fast reporters.
 
 ## EPS handling
 

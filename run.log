@@ -1,0 +1,12 @@
+31/503 companies failed: {'derived Q4 row has end <= start': 13, 'no EarningsPerShareDiluted facts in companyfacts': 9, 'derived Q4 row has a non-quarterly duration': 6, "('Connection aborted.', ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None))": 1, 'HTTPSConnectionPool(host=\'data.sec.gov\', port=443): Max retries exceeded with url: /submissions/CIK0000759944.json (Caused by NameResolutionError("HTTPSConnection(host=\'data.sec.gov\', port=443): Failed to resolve \'data.sec.gov\' ([Errno 11001] getaddrinfo failed)"))': 1, 'HTTPSConnectionPool(host=\'data.sec.gov\', port=443): Max retries exceeded with url: /submissions/CIK0000021076.json (Caused by NameResolutionError("HTTPSConnection(host=\'data.sec.gov\', port=443): Failed to resolve \'data.sec.gov\' ([Errno 11001] getaddrinfo failed)"))': 1}
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+    print(failures[:15] if failures else 'none')
+                           ^^^^^^^^
+  File "C:\Users\User\projects\pead-event-study\.venv\Lib\site-packages\pandas\core\generic.py", line 1501, in __bool__
+    raise ValueError(
+    ...<2 lines>...
+    )
+ValueError: The truth value of a DataFrame is ambiguous. Use a.empty, a.bool(), a.item(), a.any() or a.all().
+rows: 20427 | companies: 466
+failures: 31

@@ -286,12 +286,16 @@ def match_announcements_to_periods(
     the most recent EPS period (per `events`/`eps` `cik`) whose `end` is on
     or before the announcement's `filing_date`, within 75 days.
 
-    Adds `days_since_period_end`. A normal reporting lag is ~15-75 days
-    (SEC deadlines run up to 40-90 days depending on filer size); anything
-    outside that range signals a bad pairing rather than a real gap, so by
-    default we raise instead of returning silently wrong data. Pass
-    `raise_on_bad_lag=False` to get the matches back anyway (with the bad
-    rows still flagged in `days_since_period_end`) for diagnostic use.
+    Adds `days_since_period_end`. A normal reporting lag is ~7-75 days
+    (SEC deadlines run up to 40-90 days depending on filer size, and fast
+    reporters like JPMorgan come in at 12-16 days -- a 15-day floor
+    rejected roughly 85% of its legitimate quarterly announcements); the
+    7-day floor still excludes non-quarterly Item 2.02 filings such as
+    guidance revisions (Apple's 2019-01-02 warning had a 4-day lag).
+    Anything outside 7-75 days signals a bad pairing rather than a real
+    gap, so by default we raise instead of returning silently wrong data.
+    Pass `raise_on_bad_lag=False` to get the matches back anyway (with the
+    bad rows still flagged in `days_since_period_end`) for diagnostic use.
     """
     left = events.sort_values("filing_date")
     right = eps.sort_values("end")
@@ -309,11 +313,11 @@ def match_announcements_to_periods(
     matched = matched.reset_index(drop=True)
 
     lag = matched["days_since_period_end"]
-    bad = lag.notna() & ~lag.between(15, 75)
+    bad = lag.notna() & ~lag.between(7, 75)
     if bad.any() and raise_on_bad_lag:
         raise ValueError(
             f"{bad.sum()} announcement(s) matched a period outside the "
-            "15-75 day reporting-lag window -- likely a mismatched pairing."
+            "7-75 day reporting-lag window -- likely a mismatched pairing."
         )
 
     return matched

@@ -132,9 +132,9 @@ def main() -> int:
     if match_rate < 0.9:
         print("\n!! Low match rate. Check the 75-day tolerance and the fiscal calendar.")
 
-    bad = lag[~lag.between(15, 75)]
+    bad = lag[~lag.between(7, 75)]
     if not bad.empty:
-        print(f"\n!! {len(bad)} match(es) outside the 15-75 day reporting-lag window:")
+        print(f"\n!! {len(bad)} match(es) outside the 7-75 day reporting-lag window:")
         print(matched.loc[bad.index, ["accession", "filing_date", "end", "days_since_period_end"]]
               .to_string(index=False))
         print("   Likely an 8-K carrying Item 2.02 that isn't a standard quarterly")

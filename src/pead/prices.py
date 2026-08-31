@@ -24,6 +24,7 @@ Four entry points:
 
 from __future__ import annotations
 
+import io
 import logging
 import time
 from pathlib import Path
@@ -32,6 +33,8 @@ import numpy as np
 import pandas as pd
 import requests
 import yfinance as yf
+
+from pead.edgar import EdgarClient
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +52,7 @@ def _require_benchmark(prices: pd.DataFrame) -> None:
         )
 
 
-def get_sp500_constituents() -> pd.DataFrame:
+def get_sp500_constituents(edgar_client: EdgarClient | None = None) -> pd.DataFrame:
     """
     Scrape *current* S&P 500 constituents (ticker, name, CIK) from Wikipedia.
 
@@ -58,6 +61,17 @@ def get_sp500_constituents() -> pd.DataFrame:
     (delisted, acquired, dropped for poor performance) are silently
     excluded, which introduces survivorship bias into the universe -- see
     `docs/methodology.md`.
+
+    The page's tables shift around (the constituents table isn't always
+    the first one, and its `id` isn't guaranteed stable either), so the
+    right table is found by looking for one with a `Symbol` column rather
+    than trusting position or id. Raises if none is found.
+
+    Wikipedia's own CIK column is dropped in favour of the SEC's
+    `EdgarClient.ticker_to_cik()` mapping, which is authoritative; a
+    ticker that Wikipedia lists but the SEC mapping doesn't recognise is
+    logged and dropped rather than silently kept with a wrong or missing
+    CIK.
     """
     response = requests.get(
         WIKI_SP500_URL,
@@ -66,13 +80,40 @@ def get_sp500_constituents() -> pd.DataFrame:
     )
     response.raise_for_status()
 
-    table = pd.read_html(response.text, attrs={"id": "constituents"})[0]
-    table = table.rename(columns={"Symbol": "ticker", "Security": "name", "CIK": "cik"})
+    # pd.read_html expects a URL, path, or file-like object -- not a raw
+    # HTML string -- so the response body has to go through a buffer.
+    tables = pd.read_html(io.StringIO(response.text))
+    for candidate in tables:
+        if "Symbol" in candidate.columns:
+            table = candidate
+            break
+    else:
+        raise ValueError(
+            "No table with a 'Symbol' column found on the Wikipedia S&P 500 page -- "
+            "its layout may have changed."
+        )
+
+    table = table.rename(columns={"Symbol": "ticker", "Security": "name"})
     # yfinance/most price feeds use a hyphen for the share-class separator
     # (BRK-B), Wikipedia uses a dot (BRK.B).
     table["ticker"] = table["ticker"].str.replace(".", "-", regex=False)
-    table["cik"] = table["cik"].astype(int)
-    return table[["ticker", "name", "cik"]].reset_index(drop=True)
+    table = table[["ticker", "name"]]
+
+    client = edgar_client or EdgarClient()
+    sec_mapping = client.ticker_to_cik()[["ticker", "cik"]]
+
+    merged = table.merge(sec_mapping, on="ticker", how="left")
+    unmatched = merged["cik"].isna()
+    if unmatched.any():
+        logger.warning(
+            "%d ticker(s) from Wikipedia had no matching CIK in the SEC mapping: %s",
+            int(unmatched.sum()),
+            sorted(merged.loc[unmatched, "ticker"]),
+        )
+    merged = merged.loc[~unmatched].copy()
+    merged["cik"] = merged["cik"].astype(int)
+
+    return merged[["ticker", "name", "cik"]].reset_index(drop=True)
 
 
 def _chunks(items: list[str], size: int) -> list[list[str]]:

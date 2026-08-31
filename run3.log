@@ -1,0 +1,42 @@
+28/503 companies failed: {'derived Q4 row has end <= start': 13, 'no EarningsPerShareDiluted facts in companyfacts': 9, 'derived Q4 row has a non-quarterly duration': 6}
+rows: 21267 | companies: 469
+count    469.000000
+mean      45.345416
+std       11.819696
+min        1.000000
+25%       46.000000
+50%       47.000000
+75%       49.000000
+max       95.000000
+companies with <20 rows: 21
+events per quarter, min/max: 384 491
+failures: 28
+   ticker      cik                                             error
+0    ABNB  1559720  no EarningsPerShareDiluted facts in companyfacts
+1    ARES  1176948  no EarningsPerShareDiluted facts in companyfacts
+2     AZO   866787       derived Q4 row has a non-quarterly duration
+3   BRK-B  1067983  no EarningsPerShareDiluted facts in companyfacts
+4     BNY  1390777                   derived Q4 row has end <= start
+5    SCHW   316709                   derived Q4 row has end <= start
+6     STZ    16918  no EarningsPerShareDiluted facts in companyfacts
+7    COST   909832       derived Q4 row has a non-quarterly duration
+8      DE   315189                   derived Q4 row has end <= start
+9     DPZ  1286681       derived Q4 row has a non-quarterly duration
+10   ERIE   922621  no EarningsPerShareDiluted facts in companyfacts
+11    EXC  1109357                   derived Q4 row has end <= start
+12   FDXF  2082247  no EarningsPerShareDiluted facts in companyfacts
+13   HONA  2089271  no EarningsPerShareDiluted facts in companyfacts
+14    HWM     4281                   derived Q4 row has end <= start
+15      J    52988                   derived Q4 row has end <= start
+16    KKR  1404912  no EarningsPerShareDiluted facts in companyfacts
+17     KR    56873                   derived Q4 row has end <= start
+18    MAR  1048286       derived Q4 row has a non-quarterly duration
+19     MS   895421                   derived Q4 row has end <= start
+20    NEM  1164727                   derived Q4 row has end <= start
+21    PEP    77476       derived Q4 row has a non-quarterly duration
+22    PFG  1126328                   derived Q4 row has end <= start
+23    STE  1757898                   derived Q4 row has end <= start
+24    UAL   100517                   derived Q4 row has end <= start
+25      V  1403161  no EarningsPerShareDiluted facts in companyfacts
+26     WY   106535                   derived Q4 row has end <= start
+27    YUM  1041061       derived Q4 row has a non-quarterly duration
