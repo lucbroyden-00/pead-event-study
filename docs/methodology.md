@@ -15,9 +15,14 @@ commit as the code change that motivates it.
 
 ## Sample period
 
-Effectively begins 2009, constrained by XBRL phase-in. Pre-2009 filings
+XBRL phase-in sets the earliest feasible start at 2009 — pre-2009 filings
 would require parsing raw filing text, which is out of scope. One extra
-year (2009) arrives via prior-year comparatives inside FY2010 10-Ks.
+year (2009) would arrive via prior-year comparatives inside FY2010 10-Ks.
+
+The pipeline's actual start date is **2015-01-01**, later than the 2009
+floor. This was a deliberate choice, not a constraint: 2015 gives a
+cleaner post-crisis sample, and XBRL tagging is more consistent across
+filers by then than it is in the 2009–2014 phase-in years.
 
 ## Event identification
 
@@ -58,6 +63,16 @@ year (2009) arrives via prior-year comparatives inside FY2010 10-Ks.
   period end. Apple's Q4 EPS falls 8.26 → 1.42 across the 2014 7-for-1
   split and 3.03 → 0.73 across the 2020 4-for-1; unadjusted, a seasonal
   random walk surprise measure would read these as catastrophic misses.
+- **XBRL unit bug.** `EarningsPerShareDiluted` facts appear under
+  multiple unit keys in `companyfacts`, including `USD` (total dollar
+  earnings) alongside the real per-share unit, `USD/shares`. Concatenating
+  all units without checking which one a value came from produced EPS
+  values such as 24,000,000 for ICE and 800,000 for Halliburton, which in
+  turn generated SUE values in the hundreds of thousands that destroyed
+  both extreme deciles. The code now selects only the `USD/shares` unit
+  and asserts every EPS value falls below 100 in absolute terms, logging
+  and excluding any company that violates this rather than silently
+  keeping a corrupted value (see "Exclusions" below).
 
 ## Earnings expectation model
 
@@ -102,20 +117,76 @@ year (2009) arrives via prior-year comparatives inside FY2010 10-Ks.
   are largely anticipated before the release, non-cash, and concentrated
   in specific quarters and sectors rather than reflecting a surprise the
   market is reacting to.
-- Left uncapped, these outliers dominated their calendar quarter's SUE
-  distribution and inverted decile 1's drift, which should be negative
-  (the market underreacting to bad news) — instead decile 1 was populated
-  by writedown-driven observations whose drift ran positive. Winsorising
-  within quarter caps their influence on the ranking without discarding
-  the observations entirely.
+- Winsorising was applied to cap these outliers' influence on the
+  within-quarter ranking without discarding the observations entirely —
+  **it did not fix decile 1's inversion.** The long-short spread is
+  essentially unchanged with and without winsorising (0.55% either way),
+  and decile 1 — which should show the most negative drift, the market
+  underreacting to bad news — still drifts positive after winsorising.
+  The inversion is not explained by the writedown outliers and remains an
+  unexplained feature of the result, reported honestly in the README
+  rather than papered over.
+
+## Normal return model
+
+Abnormal returns are **market-adjusted**: a stock's abnormal return on a
+given day is its raw daily return minus SPY's raw daily return on the
+same day.
+
+## Return and CAAR calculation
+
+- **Daily returns** are computed from split- and dividend-adjusted closes
+  (yfinance, `auto_adjust=True`).
+- **Abnormal return** on a given day is the stock's daily return minus
+  SPY's daily return on the same day (see "Normal return model" above).
+- **CAR** (cumulative abnormal return) over a window is the **arithmetic
+  sum** of daily abnormal returns across that window — not a compounded
+  product of `(1 + abnormal return)` terms. CAR was chosen over BHAR
+  (buy-and-hold abnormal return) deliberately: CAR aggregates and tests
+  cleanly across events (sums and means commute; products don't), and the
+  numerical difference between the two is small over a horizon this short
+  (60 trading days).
+- **CAAR** (cumulative average abnormal return) at a given event time
+  within a decile is the cross-sectional mean of CAR across that decile's
+  events, up to that event time.
+- The **fan chart cumulates from t=0**, so it includes the announcement
+  reaction (the (0, +1) window) as well as the drift window. The
+  **reported long-short spread** covers only the **drift window (+2,
+  +60)**, deliberately excluding the announcement reaction. These two
+  figures are not directly comparable and differ substantially as a
+  result — the fan chart's endpoint spread is larger than the reported
+  drift spread precisely because it also captures the announcement-day
+  jump.
 
 ## Event study parameters
 
-- **Estimation window:** 250 trading days ending 21 days before the
-  event, the gap avoiding contamination from pre-announcement drift and
-  changing volatility.
 - **Announcement window:** (0, +1).
 - **Drift window:** (+2, +60).
+
+## Exclusions
+
+From the most recent full run, 36 of 503 candidate companies were
+excluded before any event reached the decile sort:
+
+| Reason | Companies |
+|---|---:|
+| Derived Q4 row has end date before start date | 13 |
+| No `EarningsPerShareDiluted` facts in `companyfacts` | 9 |
+| Per-share/total-dollar unit mixup (see "XBRL unit bug" above) | 8 |
+| Derived Q4 row has a non-quarterly duration | 6 |
+| **Total** | **36** |
+
+Two further, smaller exclusions happen downstream, at the event level
+rather than the company level:
+
+- **6 events** fall outside the trading calendar entirely (e.g. an
+  announcement accepted after the close on the last available trading
+  day) and get no `t0_position`.
+- **803 announcements across the full universe** are accepted intraday
+  (between 09:30 and 16:00 ET) and are dropped, because `t=0` cannot be
+  cleanly assigned without intraday prices. This is a universe-wide count,
+  not just the three intraday announcements noted for Apple specifically
+  in "Known limitations" below.
 
 ## Validation
 
@@ -129,5 +200,5 @@ no inverted dates and durations of 89–97 days.
 - Universe constructed from current index membership, introducing
   survivorship bias.
 - Apple's 52/53-week fiscal calendar produces occasional 97-day quarters.
-- Three Apple announcements occur intraday, where `t=0` cannot be cleanly
-  assigned without intraday prices.
+- Three of Apple's announcements are among the intraday-accepted filings
+  dropped for the reason described in "Exclusions" above.
