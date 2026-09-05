@@ -58,11 +58,7 @@ filers by then than it is in the 2009–2014 phase-in years.
   durations.
 - Derived Q4 carries rounding error of one to two cents from accumulated
   per-quarter rounding. Immaterial for surprise calculation.
-- **EPS is as-reported and not split-adjusted.** Adjusted using cumulative
-  split ratios from yfinance applied to splits occurring after each
-  period end. Apple's Q4 EPS falls 8.26 → 1.42 across the 2014 7-for-1
-  split and 3.03 → 0.73 across the 2020 4-for-1; unadjusted, a seasonal
-  random walk surprise measure would read these as catastrophic misses.
+- EPS as filed in XBRL is as-reported and therefore not split-adjusted. The pipeline adjusts it by dividing each value by the cumulative product of split ratios occurring after that period end, using split data from yfinance. Apple illustrates why this is necessary: unadjusted Q4 EPS falls from 8.26 to 1.42 across the 2014 7-for-1 split and from 3.03 to 0.73 across the 2020 4-for-1. A seasonal random walk surprise measure would read both as catastrophic misses for a company that was growing.
 - **XBRL unit bug.** `EarningsPerShareDiluted` facts appear under
   multiple unit keys in `companyfacts`, including `USD` (total dollar
   earnings) alongside the real per-share unit, `USD/shares`. Concatenating
