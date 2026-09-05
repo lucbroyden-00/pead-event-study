@@ -15,6 +15,7 @@ dates by hand (Apple's are easy to check) before trusting the output.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import threading
@@ -24,6 +25,8 @@ import pandas as pd
 import requests
 import yfinance as yf
 
+logger = logging.getLogger(__name__)
+
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 SUBMISSIONS_PAGE_URL = "https://data.sec.gov/submissions/{filename}"
@@ -31,6 +34,15 @@ COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.jso
 
 CACHE_DIR = Path("data/edgar")
 MAX_REQUESTS_PER_SECOND = 8  # SEC limit is 10; leave headroom
+
+# EarningsPerShareDiluted facts come tagged under several XBRL unit keys.
+# "USD/shares" is the actual per-share figure; some filers additionally (or
+# mistakenly) tag total dollar earnings under "USD" against the same concept
+# -- e.g. ICE reporting 24,000,000 and Halliburton 800,000 -- which reads as
+# a legitimate EPS value unless the unit is checked. Only "USD/shares" is a
+# real per-share number, so it's the only unit ever used here.
+EPS_UNIT = "USD/shares"
+PLAUSIBLE_EPS_ABS_MAX = 100  # a diluted EPS this large is a unit mixup, not a real value
 
 
 class RateLimiter:
@@ -209,11 +221,18 @@ def get_quarterly_eps(client: EdgarClient, cik: int) -> pd.DataFrame:
     if concept is None:
         return pd.DataFrame()
 
-    rows = []
-    for unit_facts in concept["units"].values():
-        rows.extend(unit_facts)
+    units = concept["units"]
+    if EPS_UNIT not in units:
+        logger.warning(
+            "CIK %d has no %r unit for EarningsPerShareDiluted (units present: %s) -- "
+            "skipping rather than falling back to a non-per-share unit",
+            cik,
+            EPS_UNIT,
+            sorted(units),
+        )
+        return pd.DataFrame()
 
-    eps = pd.DataFrame(rows)
+    eps = pd.DataFrame(units[EPS_UNIT])
     eps["start"] = pd.to_datetime(eps["start"], errors="coerce")
     eps["end"] = pd.to_datetime(eps["end"], errors="coerce")
     eps["filed"] = pd.to_datetime(eps["filed"])
@@ -247,6 +266,22 @@ def get_quarterly_eps(client: EdgarClient, cik: int) -> pd.DataFrame:
     # is Q4 by definition, so relabel those regardless of what fp says.
     fiscal_year_ends = set(annual["end"])
     quarterly.loc[quarterly["end"].isin(fiscal_year_ends), "fp"] = "Q4"
+
+    implausible = quarterly["val"].abs() >= PLAUSIBLE_EPS_ABS_MAX
+    if implausible.any():
+        logger.warning(
+            "CIK %d has %d EPS value(s) with |value| >= %d -- likely a per-share/"
+            "total-dollar unit mixup even under %r: %s",
+            cik,
+            int(implausible.sum()),
+            PLAUSIBLE_EPS_ABS_MAX,
+            EPS_UNIT,
+            quarterly.loc[implausible, ["end", "val"]].to_dict("records"),
+        )
+    assert not implausible.any(), (
+        f"CIK {cik} has EarningsPerShareDiluted value(s) with |value| >= "
+        f"{PLAUSIBLE_EPS_ABS_MAX} under unit {EPS_UNIT!r} -- see warning log for the offending rows"
+    )
 
     cols = ["cik", "start", "end", "val", "filed", "form", "fy", "fp"]
     return quarterly[cols].sort_values("end").reset_index(drop=True)

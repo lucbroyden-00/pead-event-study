@@ -59,6 +59,56 @@ year (2009) arrives via prior-year comparatives inside FY2010 10-Ks.
   split and 3.03 → 0.73 across the 2020 4-for-1; unadjusted, a seasonal
   random walk surprise measure would read these as catastrophic misses.
 
+## Earnings expectation model
+
+- **Primary specification: pure seasonal random walk.** `expected_eps =
+  eps_lag4q`, so `unexpected_eps = eps - eps_lag4q`, scaled by the share
+  price at t-1: `sue = unexpected_eps / price_{t-1}`. Combined with the
+  within-quarter winsorising below, this is what `compute_sue` /
+  `assign_deciles` produce and what every downstream result is built on.
+- **Tested and rejected: seasonal random walk with drift** (Bernard and
+  Thomas, 1989): `expected_eps = eps_lag4q + eps_drift`, where `eps_drift`
+  is the mean of the last four available year-over-year changes
+  (`eps[q] - eps[q-4]`, for each of the four quarters strictly before the
+  one being predicted, per company). The motivation was real: a pure
+  random walk implicitly assumes no trend in year-over-year earnings
+  change, so firms whose earnings changed a lot for entirely predictable
+  reasons — a recovery, a decline, an ongoing business transformation —
+  can read as "surprised" even when the market saw it coming. In
+  practice, though, adding the drift term made the results worse: it
+  reduced the long-short drift spread from 0.55% to 0.19% and its
+  clustered t-statistic from 1.02 to 0.37, and it degraded the
+  monotonicity of the decile sort at the announcement window. The pure
+  random walk with winsorising remains the primary specification.
+- The drift-term code (`add_earnings_drift`, `eps_drift`, `expected_eps`)
+  is kept in the codebase, tested, and importable, but is not called by
+  the default pipeline — a documented alternative rather than a deleted
+  one, in case the comparison is worth revisiting (e.g. with a different
+  drift window, or shrinkage toward zero drift). Rows without at least 3
+  of the last 4 year-over-year changes (mostly a company's first few
+  quarters in the dataset) are dropped there rather than given an
+  unreliable drift estimate; the count is logged.
+
+## SUE winsorisation
+
+- `sue` (the pure-random-walk surprise above) is winsorised within each
+  *calendar* quarter at the 1st/99th percentiles before decile
+  assignment, producing a `sue_winsorised` column that `assign_deciles`
+  ranks on; raw `sue` is kept unchanged for reference. The number of
+  observations capped is logged.
+- Driven by large one-off writedowns: NRG (SUE ≈ −20.08), PG&E (≈ −13.29),
+  Marathon (≈ −14.25), Kraft Heinz (≈ −10.30). These are real GAAP
+  figures, not data errors, but poor proxies for earnings *news* — they
+  are largely anticipated before the release, non-cash, and concentrated
+  in specific quarters and sectors rather than reflecting a surprise the
+  market is reacting to.
+- Left uncapped, these outliers dominated their calendar quarter's SUE
+  distribution and inverted decile 1's drift, which should be negative
+  (the market underreacting to bad news) — instead decile 1 was populated
+  by writedown-driven observations whose drift ran positive. Winsorising
+  within quarter caps their influence on the ranking without discarding
+  the observations entirely.
+
 ## Event study parameters
 
 - **Estimation window:** 250 trading days ending 21 days before the

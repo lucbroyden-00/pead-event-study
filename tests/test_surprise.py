@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from pead.prices import BENCHMARK_TICKER
-from pead.surprise import add_lagged_eps, assign_deciles, compute_sue
+from pead.surprise import add_earnings_drift, add_lagged_eps, assign_deciles, compute_sue
 
 
 def test_add_lagged_eps_does_not_mispair_across_a_missing_quarter():
@@ -60,6 +60,35 @@ def test_assign_deciles_produces_near_equal_counts_per_quarter():
     # this near-exactly.
     assert counts.min() >= 18
     assert counts.max() <= 22
+
+
+def test_assign_deciles_winsorises_extreme_writedown_before_ranking(caplog):
+    # Real-world case this guards against: a one-off writedown (e.g. NRG's
+    # SUE of roughly -20) that swamps the rest of the quarter's SUE scale
+    # and, left uncapped, would put a value dozens of standard deviations
+    # out into decile 1 and invert its drift.
+    rng = np.random.default_rng(1)
+    n_obs = 100
+    normal_sue = rng.normal(scale=0.01, size=n_obs - 1)
+    events = pd.DataFrame(
+        {
+            "sue": np.concatenate([normal_sue, [-20.0]]),
+            "announcement_date": pd.Timestamp("2024-02-15"),
+        }
+    )
+
+    with caplog.at_level("INFO"):
+        result = assign_deciles(events, n=10)
+
+    outlier = result.loc[np.isclose(result["sue"], -20.0)].iloc[0]
+    # raw sue is kept untouched for reference...
+    assert outlier["sue"] == pytest.approx(-20.0)
+    # ...but ranking uses the winsorised value, capped far above -20 (the
+    # rest of the quarter's SUE sits within +/- ~0.03 of zero).
+    assert outlier["sue_winsorised"] > -1.0
+    assert outlier["decile"] == 1
+
+    assert "Winsorised" in caplog.text
 
 
 def test_assign_deciles_drops_thin_quarters():
@@ -134,3 +163,42 @@ def test_firm_with_zero_surprise_lands_mid_distribution():
     # the 50th percentile.
     assert zero_firm["decile"] in (5, 6)
     assert zero_firm["sue_rank"] == pytest.approx(0.5, abs=0.05)
+
+
+def test_add_earnings_drift_predicts_steady_growth_almost_exactly():
+    # EPS grows by a constant 0.05/quarter -- a fully predictable trend.
+    # `add_earnings_drift`'s expected_eps should anticipate it almost
+    # exactly (unlike eps_lag4q alone, which misses the trend entirely and
+    # would read it as a sizeable "surprise" -- the reason this expectation
+    # was tried in the first place). Not wired into `compute_sue` by
+    # default -- see docs/methodology.md ("Earnings expectation model") for
+    # why it was tested and rejected as the primary specification.
+    n_quarters = 12
+    quarterly_growth = 0.05
+    period_ends = pd.date_range("2021-03-31", periods=n_quarters, freq="QE")
+    eps_values = 1.0 + quarterly_growth * np.arange(n_quarters)
+
+    eps = pd.DataFrame({"cik": 1, "period_end": period_ends, "eps": eps_values})
+
+    eps = add_lagged_eps(eps)
+    eps = add_earnings_drift(eps)
+
+    current = eps.loc[eps["period_end"] == period_ends[-1]].iloc[0]
+    # year-over-year change is constant at 4 quarters' worth of growth
+    assert current["eps_drift"] == pytest.approx(4 * quarterly_growth)
+    assert current["expected_eps"] == pytest.approx(current["eps"])
+
+
+def test_add_earnings_drift_drops_rows_with_too_little_history(caplog):
+    # Only 3 quarters have a year-ago match (t=4..6 in a 7-quarter series),
+    # so none of them can see 3 of the last 4 year-over-year changes yet.
+    n_quarters = 7
+    period_ends = pd.date_range("2021-03-31", periods=n_quarters, freq="QE")
+    eps = pd.DataFrame({"cik": 1, "period_end": period_ends, "eps": 1.0 + 0.05 * np.arange(n_quarters)})
+
+    eps = add_lagged_eps(eps)
+    with caplog.at_level("INFO"):
+        result = add_earnings_drift(eps)
+
+    assert result.empty
+    assert "year-over-year" in caplog.text

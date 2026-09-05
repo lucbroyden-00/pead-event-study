@@ -5,8 +5,36 @@ from pead.edgar import (
     _derive_q4,
     _parse_acceptance,
     adjust_for_splits,
+    get_quarterly_eps,
     match_announcements_to_periods,
 )
+
+
+class _FakeClient:
+    """Stands in for `EdgarClient`: returns a fixed companyfacts payload
+    without hitting the network or requiring EDGAR_UA."""
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def get_json(self, url):
+        return self._payload
+
+
+def _eps_fact(val, start="2024-01-01", end="2024-03-31", filed="2024-05-01"):
+    return {
+        "start": start,
+        "end": end,
+        "val": val,
+        "filed": filed,
+        "form": "10-Q",
+        "fy": 2024,
+        "fp": "Q1",
+    }
+
+
+def _companyfacts(units: dict) -> dict:
+    return {"facts": {"us-gaap": {"EarningsPerShareDiluted": {"units": units}}}}
 
 
 def test_parse_acceptance_converts_utc_to_eastern_hour():
@@ -108,6 +136,43 @@ def test_derive_q4_ignores_prior_year_comparative_mistagged_with_current_fy():
     row = q4.iloc[0]
     assert row["end"] == pd.Timestamp("2024-12-31")
     assert row["val"] == pytest.approx(4.5 - (1.0 + 1.1 + 1.2))
+
+
+def test_get_quarterly_eps_uses_only_the_usd_per_share_unit():
+    # ICE-style mixup: the same concept, EarningsPerShareDiluted, tagged
+    # under both "USD" (total dollar earnings, 24,000,000) and "USD/shares"
+    # (the real per-share value, 1.23) for the same period.
+    facts = _companyfacts(
+        {
+            "USD": [_eps_fact(24_000_000)],
+            "USD/shares": [_eps_fact(1.23)],
+        }
+    )
+
+    result = get_quarterly_eps(_FakeClient(facts), cik=1)
+
+    assert len(result) == 1
+    assert result.loc[0, "val"] == pytest.approx(1.23)
+
+
+def test_get_quarterly_eps_returns_empty_when_per_share_unit_is_absent(caplog):
+    facts = _companyfacts({"USD": [_eps_fact(24_000_000)]})
+
+    with caplog.at_level("WARNING"):
+        result = get_quarterly_eps(_FakeClient(facts), cik=1)
+
+    assert result.empty
+    assert "USD/shares" in caplog.text
+
+
+def test_get_quarterly_eps_asserts_on_implausible_eps_value():
+    # A stray total-dollar value that slipped into USD/shares itself (not
+    # just a wrong-unit fallback) should still be caught by the plausibility
+    # check rather than silently flowing downstream into SUE.
+    facts = _companyfacts({"USD/shares": [_eps_fact(800_000)]})
+
+    with pytest.raises(AssertionError):
+        get_quarterly_eps(_FakeClient(facts), cik=1)
 
 
 def test_adjust_for_splits_makes_series_continuous_across_a_split(monkeypatch):
