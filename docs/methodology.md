@@ -123,12 +123,6 @@ filers by then than it is in the 2009–2014 phase-in years.
   unexplained feature of the result, reported honestly in the README
   rather than papered over.
 
-## Normal return model
-
-Abnormal returns are **market-adjusted**: a stock's abnormal return on a
-given day is its raw daily return minus SPY's raw daily return on the
-same day.
-
 ## Return and CAAR calculation
 
 - **Daily returns** are computed from split- and dividend-adjusted closes
