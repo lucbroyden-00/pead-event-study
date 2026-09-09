@@ -185,7 +185,14 @@ no inverted dates and durations of 89–97 days.
 ## Known limitations
 
 - Universe constructed from current index membership, introducing
-  survivorship bias.
-- Apple's 52/53-week fiscal calendar produces occasional 97-day quarters.
-- Three of Apple's announcements are among the intraday-accepted filings
-  dropped for the reason described in "Exclusions" above.
+  survivorship bias. This likely understates drift, since PEAD is
+  strongest in smaller and more distressed names, which are more likely 
+  those no longer present in the index.
+- Returns are market-adjusted only. The long-short spread isn't controlled
+  for size, value, or momentum, so any residual could be factor exposure
+  rather than an anomaly.
+- Our earnings expectations model does not incorporate analyst estimates from
+  the market, which is perhaps a more accurate benchmark against which we
+  can say whether a company beat or missed earnings
+- Cost assumptions are illustrative, not estimated. No borrow costs or
+  short-availability constraints modelled.
