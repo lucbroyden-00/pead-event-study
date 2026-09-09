@@ -127,7 +127,7 @@ filers by then than it is in the 2009–2014 phase-in years.
 - **Daily returns** are computed from split- and dividend-adjusted closes
   (yfinance, `auto_adjust=True`).
 - **Abnormal return** on a given day is the stock's daily return minus
-  SPY's daily return on the same day (see "Normal return model" above).
+  SPY's daily return on the same day.
 - **CAR** (cumulative abnormal return) over a window is the **arithmetic
   sum** of daily abnormal returns across that window — not a compounded
   product of `(1 + abnormal return)` terms. CAR was chosen over BHAR
@@ -170,12 +170,10 @@ rather than the company level:
 
 - **6 events** fall outside the trading calendar entirely (e.g. an
   announcement accepted after the close on the last available trading
-  day) and get no `t0_position`.
-- **803 announcements across the full universe** are accepted intraday
-  (between 09:30 and 16:00 ET) and are dropped, because `t=0` cannot be
-  cleanly assigned without intraday prices. This is a universe-wide count,
-  not just the three intraday announcements noted for Apple specifically
-  in "Known limitations" below.
+  day) and get no `t0_position`, and are dropped.
+- **951 announcements across the full universe** are considered intraday
+  announcements (between 09:30 and 16:00 ET) and are therefore dropped, 
+  because `t=0` cannot becleanly assigned without intraday prices. 
 
 ## Validation
 
