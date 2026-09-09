@@ -43,13 +43,18 @@ of modelling decisions.
 
 ## Limitations
 
-- The universe is built from current index membership, introducing
-  survivorship bias that likely understates drift.
-- GAAP EPS surprise is contaminated by large one-off writedowns, which are
-  real earnings events but poor proxies for earnings news.
-- The large-cap-only universe is where PEAD is weakest.
-- 36 companies were excluded for XBRL data issues; see
-  `docs/methodology.md`.
+- Universe constructed from current index membership, introducing
+  survivorship bias. This likely understates drift, since PEAD is
+  strongest in smaller and more distressed names, which are more likely 
+  those no longer present in the index.
+- Returns are market-adjusted only. The long-short spread isn't controlled
+  for size, value, or momentum, so any residual could be factor exposure
+  rather than an anomaly.
+- Our earnings expectations model does not incorporate analyst estimates from
+  the market, which is perhaps a more accurate benchmark against which we
+  can say whether a company beat or missed earnings
+- Cost assumptions are illustrative, not estimated. No borrow costs or
+  short-availability constraints modelled.
 
 ## Rejected specification
 
