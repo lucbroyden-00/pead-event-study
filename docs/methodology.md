@@ -16,8 +16,7 @@ commit as the code change that motivates it.
 ## Sample period
 
 XBRL phase-in sets the earliest feasible start at 2009 — pre-2009 filings
-would require parsing raw filing text, which is out of scope. One extra
-year (2009) would arrive via prior-year comparatives inside FY2010 10-Ks.
+would require parsing raw filing text, which is out of scope.
 
 The pipeline's actual start date is **2015-01-01**, later than the 2009
 floor. This was a deliberate choice, not a constraint: 2015 gives a
