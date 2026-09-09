@@ -28,7 +28,7 @@ the expected fan pattern, so the effect is directionally present but too
 weak to clear the noise bar in this universe. Both extreme deciles behave
 non-monotonically. This is consistent with the literature: PEAD has
 decayed since it was documented in the 1980s, and was always concentrated
-in small, illiquid, under-covered stocks — precisely what the S&P 500
+in small, illiquid, under-covered stocks, which is precisely what the S&P 500
 excludes.
 
 ## Data and method
@@ -57,14 +57,6 @@ A seasonal random walk with a drift term was tested and reduced the spread
 to 0.19%, with a clustered t-statistic of 0.37, while degrading decile
 monotonicity. Reported here for completeness; see `docs/methodology.md`
 ("Earnings expectation model").
-
-## Next steps
-
-- Test in small and mid caps, where the effect is strongest.
-- Use the announcement-window abnormal return as an alternative surprise
-  measure, immune to non-cash charges.
-- Construct calendar-time portfolios to measure an implementable return
-  series.
 
 ## Reproducing
 
